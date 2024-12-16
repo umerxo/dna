@@ -5,7 +5,6 @@ from torch.utils.data import Dataset, DataLoader
 import os
 import numpy as np
 
-# Define paths
 genome_folder_path = '/content/drive/My Drive/genomes'
 if not os.path.exists(genome_folder_path):
     raise FileNotFoundError(f"The specified genome folder path '{genome_folder_path}' doesn't exist")
@@ -19,7 +18,7 @@ nucleotide_to_int = {
     'T': 1,
     'C': 2,
     'G': 3,
-    'N': 4  # 'N' for unknown nucleotides
+    'N': 4 
 }
 int_to_nucleotide = {v: k for k, v in nucleotide_to_int.items()}
 
