@@ -120,7 +120,6 @@ predicted_errors = (predictions > 0.5).astype(int)
 corrected_sequences = X_test.copy()
 corrected_sequences[predicted_errors == 1] = padded_segments[predicted_errors == 1]
 
-# Calculate overall performance metrics (flattened across all positions).
 precision_overall = precision_score(y_test.flatten(), predicted_errors.flatten())
 recall_overall = recall_score(y_test.flatten(), predicted_errors.flatten())
 f1_overall = f1_score(y_test.flatten(), predicted_errors.flatten())
