@@ -45,13 +45,11 @@ for chrom in chromosomes:
             if len(segment) == window_size:
                 segments.append(segment)
 
-# encode nucleotides
 def encode_sequence(seq):
     return [nucleotide_map.get(base, 4) for base in seq]
 
 encoded_segments = [encode_sequence(seg) for seg in segments]
 
-# introduce synthetic substitutions
 def introduce_substitutions(seq, error_rate=0.01):
     seq = seq.copy()
     for i in range(len(seq)):
@@ -63,49 +61,68 @@ def introduce_substitutions(seq, error_rate=0.01):
 
 noisy_segments = [introduce_substitutions(seg) for seg in encoded_segments]
 
-# padding sequences
 max_length = 1000
-padded_segments = keras.preprocessing.sequence.pad_sequences(encoded_segments, maxlen=max_length, padding='post', value=4)
-padded_noisy_segments = keras.preprocessing.sequence.pad_sequences(noisy_segments, maxlen=max_length, padding='post', value=4)
+padded_segments = keras.preprocessing.sequence.pad_sequences(
+    encoded_segments, maxlen=max_length, padding='post', value=4
+)
+padded_noisy_segments = keras.preprocessing.sequence.pad_sequences(
+    noisy_segments, maxlen=max_length, padding='post', value=4
+)
 
-# create labels
-labels = np.array(padded_segments != padded_noisy_segments, dtype=int)
+labels = (padded_segments != padded_noisy_segments).astype(int)
 
-# split into training and testing sets
-X_train, X_test, y_train, y_test = train_test_split(padded_noisy_segments, labels, test_size=0.2, random_state=42)
+X_train, X_test, y_train, y_test = train_test_split(
+    padded_noisy_segments, labels, test_size=0.2, random_state=42
+)
 
-# design the CNN architecture
-model = keras.Sequential([
-    layers.Embedding(input_dim=5, output_dim=16, input_length=max_length),
-    layers.Conv1D(64, 5, activation='relu'),
-    layers.MaxPooling1D(2),
-    layers.Conv1D(128, 5, activation='relu'),
-    layers.MaxPooling1D(2),
-    layers.Flatten(),
-    layers.Dense(256, activation='relu'),
-    layers.Dropout(0.5),
-    layers.Dense(max_length, activation='sigmoid')
-])
+inputs = keras.Input(shape=(max_length,), dtype='int32')
+x = layers.Embedding(input_dim=5, output_dim=16, input_length=max_length)(inputs)
 
-# compile and train the model
-model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-history = model.fit(X_train, y_train, epochs=10, batch_size=32, validation_split=0.1)
+x = layers.Conv1D(filters=64, kernel_size=5, activation='relu', padding='same')(x)
+x = layers.MaxPooling1D(pool_size=2)(x)  # sequence length becomes 500
+x = layers.Conv1D(filters=128, kernel_size=5, activation='relu', padding='same')(x)
 
-# evaluations
-loss, accuracy = model.evaluate(X_test, y_test)
-print(f'Test Accuracy: {accuracy}')
+x = layers.Bidirectional(layers.GRU(64, return_sequences=True))(x) 
 
-# predict and correct errors
+x = layers.UpSampling1D(size=2)(x)  
+
+x = layers.TimeDistributed(layers.Dense(64, activation='relu'))(x)
+outputs = layers.TimeDistributed(layers.Dense(1, activation='sigmoid'))(x)
+outputs = layers.Reshape((max_length,))(outputs)
+
+model = keras.Model(inputs=inputs, outputs=outputs)
+
+model.compile(
+    optimizer='adam',
+    loss='binary_crossentropy',
+    metrics=[
+        tf.keras.metrics.BinaryAccuracy(name='accuracy'),
+        tf.keras.metrics.Precision(name='precision'),
+        tf.keras.metrics.Recall(name='recall')
+    ]
+)
+
+model.summary()
+
+history = model.fit(
+    X_train, y_train,
+    epochs=10,
+    batch_size=32,
+    validation_split=0.1
+)
+
+loss, accuracy, precision, recall = model.evaluate(X_test, y_test)
+print(f'\nTest metrics:\n- Loss:      {loss:.4f}\n- Accuracy:  {accuracy:.4f}\n- Precision: {precision:.4f}\n- Recall:    {recall:.4f}')
+
 predictions = model.predict(X_test)
 predicted_errors = (predictions > 0.5).astype(int)
+
 corrected_sequences = X_test.copy()
-corrected_sequences[predicted_errors] = padded_segments[predicted_errors]
+corrected_sequences[predicted_errors == 1] = padded_segments[predicted_errors == 1]
 
-# calculate performance metrics
-precision = precision_score(y_test.flatten(), predicted_errors.flatten())
-recall = recall_score(y_test.flatten(), predicted_errors.flatten())
-f1 = f1_score(y_test.flatten(), predicted_errors.flatten())
+# Calculate overall performance metrics (flattened across all positions).
+precision_overall = precision_score(y_test.flatten(), predicted_errors.flatten())
+recall_overall = recall_score(y_test.flatten(), predicted_errors.flatten())
+f1_overall = f1_score(y_test.flatten(), predicted_errors.flatten())
 
-print(f'Precision: {precision}')
-print(f'Recall: {recall}')
-print(f'F1 Score: {f1}')
+print(f'\nOverall metrics (per base):\n- Precision: {precision_overall:.4f}\n- Recall:    {recall_overall:.4f}\n- F1 Score:  {f1_overall:.4f}')
